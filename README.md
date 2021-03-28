@@ -1,5 +1,5 @@
 # Sentiment-Analysis-Project
-## In this project, we collected and analysed Twitter data about the Trump and Biden 2020 campaigns.
+## In this project, we collected and analyzed Twitter data about the Trump and Biden 2020 campaigns.
 We then: 
 - turned the vector of tweets to a corpus
 - cleaned the data
