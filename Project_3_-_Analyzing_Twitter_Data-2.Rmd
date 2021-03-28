@@ -1,0 +1,304 @@
+---
+title: 'Project 3: Analyzing Twitter Data'
+author: "Kethie Heasley, Kim Weinman, Dom Ulicne, & Curtis Schrack"
+date: "October 22, 2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project 3: Analyzing Twitter Data
+
+Several factors have given Twitter considerable advantages over other social media platforms for analysis. First, the limited character size of tweets provides us with a relatively homogeneous corpora. Second, the millions of tweets published everyday allows access to large data samples. Third, the tweets are publicly available and easily accessible as well as retrievable via APIs.
+
+In this project, you'll explore data from Twitter. While there are a ton of interesting research questions stemming from Twitter data -- how people communicate, when, and why -- we are going to look at how one might gain insights about politics by using this data.
+
+
+## Logistics
+
+*Deadline.* This project is due at 11:59pm on Friday 11/13.  
+
+*Partners.* You will work in groups of 3 or 4. You all need to submit the project as a pdf.*Please indicate who your group is as a comment on the submission on schoology.*
+
+*Rules.* Don't share your code with anybody but your partner. You are welcome to discuss questions with other students, but don't share the answers. The experience of solving the problems in this project will prepare you for exams (and life). If you share answers or have answers shared with you, this will result in a 0 for all group members of any involved groups.
+
+*Support.* You are not alone! Come to office hours. If you want to ask about the details of your solution to a problem, email me and I can help! If you're ever feeling overwhelmed or don't know how to make progress, email me and I can help!
+
+*Advice.* Develop your answers incrementally. To perform a complicated table manipulation, break it up into steps, perform each step on a different line, give a new name to each result, and check that each intermediate result is what you expect. You can add any additional names or functions you want. Make sure that you are using distinct and meaningful variable names throughout the notebook. Use intermediate variables and multiple lines as much as you would like!
+
+```{r}
+library('rtweet')
+```
+
+
+# Part 1: Identifying weakness
+
+Imagine you were working for (or against) the Trump campaign. It would be helpful to know what his constituents believe to be his weaknesses. Rather than conducting a pricey and time-consuming survey, we'd like to assess this using Twitter data.
+
+
+*1)* First, collect a sample of 5000 tweets which originated in the US that include the word Trump. Save the text of the tweets in a vector called usa_tweets.
+
+```{r}
+usa_data = search_tweets(q = "Trump", n = 5000)
+```
+
+
+```{r}
+usa_tweets = usa_data$text
+head(usa_tweets)
+```
+
+Now, we need to load the tm package. It is through this package that we will do the rest of our data cleaning.
+
+```{r}
+library(tm)
+```
+
+*2)* Convert the vector of tweets into a corpus object. Call it usa_corpus. Then convert all of our text to lowercase. This move ensures that text with differing capitalization will all be standardized when we perform our analysis later.
+
+```{r}
+usa_corpus = Corpus(VectorSource(usa_tweets))
+usa_corpus = tm_map(usa_corpus,content_transformer(tolower))
+```
+
+
+*3)* You will now clean up the corpus further by applying some transformations:
+
+You need to remove mentions of 'trump.' We want to remove this piece of text because we selected tweets based on their inclusion of 'trump'. So having it in our text tells us nothing interesting about its content.  
+
+You also need to remove 'rt' and 're' because knowing a tweet is a retweet from another user or a reply to another other is not substantively useful for us. In addition, when the tweets we downloaded, every '&' sign was turned into 'amp'. Thus, you need to remove this abbreviation as well.
+
+You also need to remove all stop words.
+
+Finally, you will want to remove punctuation. This is because punctuation is not relevant to our analysis of the sentiment contained within these tweets. We have already removed all of the @ signs, but we still need to remove the other punctuation that remains. This does include removing the # sign, too. Just as with the @ symbol, in a different study we might be interested in knowing what hashtags are most common. However, the content of hashtags will still be reported with this operation, just without the accompanying symbol.
+
+```{r}
+remove = c('trump', 'rt', 're', 'amp')
+usa_corpus = tm_map(usa_corpus, removeWords, remove)
+usa_corpus = tm_map(usa_corpus, removeWords, stopwords("english"))
+usa_corpus = tm_map(usa_corpus, removePunctuation) 
+head(usa_corpus)
+```
+
+
+*4)* Now, you need to turn this cleaned corpus back into a data frame. Create a dataframe called trump_df with a column named text_clean which takes on the content of the text_corpus. Make sure to make the column a character class, not a factor. We will need it to be character class in order to perform the sentiment analysis.
+
+```{r}
+trump_vect = get("content", usa_corpus)
+head(trump_vect)
+trump_df = data.frame(trump_vect)
+colnames(trump_df)="text_clean"
+head(trump_df)
+```
+
+
+
+Now, with our cleaned data in hand, we are ready to begin our sentiment analysis.
+
+Utilizing the SentimentAnalysis package, we can simply apply the command analyzeSentiment() to quickly create a data frame which contains the sentiment scoring for each tweet. Contained in this data frame are 13 sentiment scores from four different dictionaries: GI, HE, LM, and QDAP. Running the analyzeSentiment() command compares the text of the tweets with these various dictionaries, looking for word matches. When there are matches with positively or negatively categorized words, the tweet is given a corresponding sentiment score, which is located in the trump_sentiment data frame.
+
+
+```{r}
+#install.packages('SentimentAnalysis')
+library(SentimentAnalysis)
+```
+
+```{r}
+trump_sentiment <- analyzeSentiment(trump_df$text_clean)
+head(trump_sentiment)
+```
+
+*5)* To begin this process, we first pare down the trump_sentiment data frame to contain only the sum sentiment analysis results: that is, removing the unnecessary accompanying Negativity and Positivity measures. You should remove select columns so that trump_sentiment is left with only SentimentGI, SentimentHE, SentimentLM, SentimentQDAP, WordCount. Once performed, the data we are working with is smaller and easier to understand.
+
+```{r}
+trump_sentiment = data.frame(trump_sentiment$SentimentGI, trump_sentiment$SentimentHE, trump_sentiment$SentimentLM, trump_sentiment$SentimentQDAP, trump_sentiment$WordCount)
+colnames(trump_sentiment) = c("SentimentGI", "SentimentHE", "SentimentLM", "SentimentQDAP", "WordCount")
+head(trump_sentiment)
+```
+
+
+*6)* Having no theoretical reason to rely on any of these dictionaries more than the others, you should create a mean value for each tweet's sentiment level, leaving us with a single sentiment value for each tweet. Create a new variable which takes the average of every row's Sentiment scores. Since you kept a word count column, make sure not to include that column in the mean.
+
+
+```{r}
+meanSentimentScores = c()
+for (i in 1:nrow(trump_sentiment)){
+   meanSentimentScores[i] = (trump_sentiment$SentimentGI[i] + trump_sentiment$SentimentHE[i] + trump_sentiment$SentimentLM[i] + trump_sentiment$SentimentQDAP[i])/4
+}
+head(meanSentimentScores)
+```
+
+
+*7)* Finally, add the mean sentiment column and the WordCount columns to the trump_df dataframe.
+
+```{r}
+trump_df = cbind(trump_df, MeanSentimentScores = meanSentimentScores, WordCount = trump_sentiment$WordCount)
+head(trump_df)
+```
+
+
+
+*8)* Having paired tweets and their respective mean sentiment measures, we now will strip the data set of any tweets which are more positive than negative. Remember, we are interested in why constituents are unhappy with Trump, not why they support him. Create a new data frame called trump_df_neg with only tweets whose mean value is less than 0.
+
+```{r}
+trump_df_neg = subset(trump_df, trump_df$MeanSentimentScores < 0)
+head(trump_df_neg)
+```
+
+
+
+*9)* Now, we want to know what topics are most commonly contained within these tweets. One way to do this is to look at which words are the most common.
+
+To find the most common words in trump_df_negative, you can convert the text column to a corpus, create a term document matrix, etc.
+
+Find the 15 most common words among the negative tweets to give a brief but informative look at what tweeters are concerned with with regards to Trump.
+
+```{r}
+trump_neg_corpus = Corpus(VectorSource(trump_df_neg$text_clean))
+trump_neg_TDM = TermDocumentMatrix(trump_neg_corpus)
+words_frequency <- rowSums(as.matrix(trump_neg_TDM))
+words_frequency = sort(words_frequency, decreasing = TRUE)
+words_frequency = words_frequency[1:15]
+words_frequency
+```
+
+
+
+*10)* Look into what the words may be referring to if it isn't clear. Then write a memo communicating your findings. You should write this memo as if it were for one of the campaigns.  Keep in mind your audience to make sure your writing is clear. Here is a website that details the sections of a memo: https://owl.purdue.edu/owl/subject_specific_writing/professional_technical_writing/memos/parts_of_a_memo.html. *Write this memo in a  Word document or RMarkdown and submit this as a separate pdf.*
+
+
+# Part 2: The Election
+
+Politico identified the battle ground states in this election to be Arizona, Florida, Georgia, Michigan, Minnesota, North Carolina, Pennsylvania and Wisconsin.(See this website for more info about battle ground states: https://www.politico.com/news/2020/10/14/swing-states-2020-presidential-election-429160.)
+
+1) For each state (all 50, not just the battle ground states), collect a sample of tweets about trump and a sample of tweets about biden.
+
+Make sure to clean up the tweets. (make lowercase, remove punctuation, etc). Once they are cleaned, you should remove some tweets from each sample: from your sample of trump tweets, take out any that also contain the words joe or biden. From your sample of biden tweets, take out any that also contain the words donald or trump. (because we don't want any tweets that we think are about trump, but are actually about biden or vice versa.)
+
+Once you have everything cleaned up, find the average sentiment among the biden tweets and the average sentiment among the trump tweets. Then calculate political_leanings to be the difference between these. In other words: 
+political_leanings = sentiment_Biden - sentiment_Trump
+
+```{r}
+library("ggmap")
+
+   states = c("al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id", "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy")
+
+wordsToRemove = c("trump", "donald", "biden", "joe", "rt", "re", "amp")
+
+register_google(key = "AIzaSyCj1pj1R-7ugAbW-7VuSCAHlWWD2HleHrE", write = TRUE)
+
+political_leanings = c()
+```
+
+
+```{r}
+for(i in 1:length(states)){
+   pa_trump_tweets = search_tweets(q = "Trump", n = 100, geo = lookup_coords(states[i]))
+   pa_trump_tweets = pa_trump_tweets$text
+   pa_biden_tweets = search_tweets(q = "Biden", n = 100, geo = lookup_coords(states[i]))
+   pa_biden_tweets = pa_biden_tweets$text
+   
+   pa_trump_corpus = Corpus(VectorSource(pa_trump_tweets))
+   pa_trump_corpus = tm_map(pa_trump_corpus, content_transformer(tolower))
+   pa_trump_corpus = tm_map(pa_trump_corpus, removeWords, wordsToRemove)
+   pa_trump_corpus = tm_map(pa_trump_corpus, removeWords, stopwords("english"))
+   pa_trump_corpus = tm_map(pa_trump_corpus, removePunctuation)
+   
+   pa_biden_corpus = Corpus(VectorSource(pa_biden_tweets))
+   pa_biden_corpus = tm_map(pa_biden_corpus, content_transformer(tolower))
+   pa_biden_corpus = tm_map(pa_biden_corpus, removeWords, wordsToRemove)
+   pa_biden_corpus = tm_map(pa_biden_corpus, removeWords, stopwords("english"))
+   pa_biden_corpus = tm_map(pa_biden_corpus, removePunctuation)
+   
+   pa_trump_v = get("content", pa_trump_corpus)
+   pa_trump_df = data.frame(pa_trump_v)
+   colnames(pa_trump_df) = "text_clean"
+   
+   pa_biden_v = get("content", pa_biden_corpus)
+   pa_biden_df = data.frame(pa_biden_v)
+   colnames(pa_biden_df) = "text_clean"
+   
+   
+   pa_trump_df$text_clean = as.character(pa_trump_df$text_clean)
+   pa_trump_sentiment <- analyzeSentiment(pa_trump_df$text_clean)
+   
+   pa_trump_sentiment = data.frame(pa_trump_sentiment$SentimentGI, pa_trump_sentiment$SentimentHE, pa_trump_sentiment$SentimentLM, pa_trump_sentiment$SentimentQDAP, pa_trump_sentiment$WordCount)
+   colnames(pa_trump_sentiment) = c("SentimentGI", "SentimentHE", "SentimentLM", "SentimentQDAP", "WordCount")
+   
+   sentiment_trump = c()
+   for(j in 1:nrow(pa_trump_sentiment)){
+      sentiment_trump[j] = (pa_trump_sentiment$SentimentGI[j] + pa_trump_sentiment$SentimentHE[j] + pa_trump_sentiment$SentimentLM[j] + pa_trump_sentiment$SentimentQDAP[j])/4
+   }
+   
+   pa_biden_df$text_clean = as.character(pa_biden_df$text_clean)
+   pa_biden_sentiment <- analyzeSentiment(pa_biden_df$text_clean)
+   
+   pa_biden_sentiment = data.frame(pa_biden_sentiment$SentimentGI, pa_biden_sentiment$SentimentHE, pa_biden_sentiment$SentimentLM, pa_biden_sentiment$SentimentQDAP, pa_biden_sentiment$WordCount)
+   colnames(pa_biden_sentiment) = c("SentimentGI", "SentimentHE", "SentimentLM", "SentimentQDAP", "WordCount")
+   
+   sentiment_biden = c()
+   for(j in 1:nrow(pa_biden_sentiment)){
+      sentiment_biden[j] = (pa_biden_sentiment$SentimentGI[j] + pa_biden_sentiment$SentimentHE[j] + pa_biden_sentiment$SentimentLM[j] + pa_biden_sentiment$SentimentQDAP[j])/4
+   }
+   
+   sentiment_trump = mean(sentiment_trump)
+   sentiment_biden = mean(sentiment_biden)
+   political_leanings[i] = sentiment_biden - sentiment_trump
+}
+```
+```{r}
+length(political_leanings)
+```
+You should do this for every state and keep track of the political_leanings for each state. Note that a high positive political_leanings score would indicate a preference for biden, whereas a low political_leanings score would indicate a preference for trump.
+
+Create a map of the US and shade each state according to political_leanings on a blue-red shading scheme. The higher the value, the more blue it should be, the lower the value, the more red it should be.
+
+```{r}
+library(ggplot2)
+political_leaningsDF = data.frame(state.name, political_leanings)
+political_leaningsDF
+```
+
+
+alter political_leanings\$state.name to lower
+```{r}
+library(RColorBrewer)
+political_leaningsDF$state.name = tolower(political_leaningsDF$state.name)
+us = map_data('state')
+
+map.popcolor = ggplot(political_leaningsDF, aes(map_id = state.name))
+map.popcolor = map.popcolor + geom_map(map = us, aes(fill = political_leanings))
+map.popcolor = map.popcolor + expand_limits(x = us$long, y = us$lat)
+map.popcolor = map.popcolor + coord_map() + ggtitle('State Political Leaning')
+map.popcolor = map.popcolor + scale_colour_brewer(palette = "RdBu")
+
+#RdBu will not work, but the darker the blue is more support for Trump, the lighter the blue is more support for Biden. 
+
+map.popcolor
+```
+
+2) Compare this map to the first map on the wikipedia page for red and blue states: https://en.wikipedia.org/wiki/Red_states_and_blue_states#/media/File:Red_state,_blue_state.svg
+
+   a) Are there any big differences that you notice?
+   Our map is much more positive to the republican side.
+   
+   b) What are some advantages to the map from Wikipedia?
+   Wikipedia is a better representation because it has more data, it also looks nicer.
+   
+   c) What are some advantages to the map that you created?
+   We have longitude latitude, a title, and a key.
+   
+   d) Do your results reflect what you would expect for the red/blue states? 
+   No, almost all of them are opposite of what was expected.
+   
+   e) Did the battle ground states' tweet sentiments correctly predict what happened in those states for the election?
+   No.
+   
+   f) In your opinion, which battleground states should the candidates have focused on more? Justify your reasoning.
+   Nevada, Arizona, Oregon.
+
+
+
+
